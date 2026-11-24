@@ -1,0 +1,13 @@
+{
+  "shift_id": "day-strip-01",
+  "batch_id": "coil-check-01",
+  "slot_id": "s1",
+  "zero_offset": 2,
+  "micrometers_per_count": 1,
+  "bad_quality_mask": 1,
+  "captures": {
+    "X": {"source": "head-A/strip-41", "raw": "{\"count\":17,\"quality\":0}"},
+    "Y": {"source": "head-A/strip-42", "raw": "{\"count\":13,\"quality\":0}"},
+    "Z": {"source": "head-A/strip-43", "raw": "{\"quality\":0, \"count\":13}"}
+  }
+}
