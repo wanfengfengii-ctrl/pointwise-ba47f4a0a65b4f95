@@ -18,4 +18,8 @@ def find_replay(
         or receipt.measurement.micrometers != piece.micrometers
     ):
         raise ValueError('replay does not match committed receipt')
+    if (receipt is not None and receipt.read_location is not None
+            and piece.read_location is not None
+            and receipt.read_location != piece.read_location):
+        raise ValueError('replay does not match committed read location')
     return piece

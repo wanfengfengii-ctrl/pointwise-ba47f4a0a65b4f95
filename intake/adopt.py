@@ -23,6 +23,8 @@ def adopt(
     origin = read_origin(device, capture_id)
     if origin is None:
         raise KeyError(capture_id)
+    if origin.movable:
+        raise ValueError('movable captures must be received and released through their live packet')
     announce_origin(station, origin)
     saved = read_preservation(station, capture_id)
     if saved is not None and saved.method != method:
@@ -40,6 +42,41 @@ def adopt(
                     raise LookupError(f'live original unavailable for {capture_id}')
                 receipt = receive_original(station, original)
             bind_preservation(station, receipt.original, method, capture_id)
+
+    bind_operation(station, operation_id, origin)
+    outcome = resume_release(station, device, operation_id, retry=True, lose_reply=lose_reply)
+    if outcome is None:
+        raise RuntimeError('release remains pending')
+    return outcome
+
+
+def release_movable(
+    station: sqlite3.Connection, device: sqlite3.Connection, capture_id: str,
+    operation_id: str, *, lose_reply: bool = False,
+) -> ReleaseOutcome:
+    """Release a movable capture only through its committed live read receipt."""
+    if not isinstance(operation_id, str) or not operation_id:
+        raise ValueError('operation number must be a nonempty string')
+    previous = read_operation(station, operation_id)
+    if previous is not None and previous.origin.capture_id != capture_id:
+        raise ValueError('station release operation already bound')
+    origin = read_origin(device, capture_id)
+    if origin is None:
+        raise KeyError(capture_id)
+    if not origin.movable:
+        raise ValueError('capture is not movable')
+    announce_origin(station, origin)
+
+    saved = read_preservation(station, capture_id)
+    if saved is not None and saved.method != 'live':
+        raise ValueError('capture already bound to another preservation path')
+    receipt = find_receipt(station, capture_id)
+    if receipt is None or receipt.read_location is None:
+        raise ValueError('movable capture needs a committed live read receipt')
+    if receipt.original.origin.capture_id != capture_id:
+        raise ValueError('live receipt belongs to another capture')
+    if saved is None:
+        bind_preservation(station, receipt.original, 'live', capture_id)
 
     bind_operation(station, operation_id, origin)
     outcome = resume_release(station, device, operation_id, retry=True, lose_reply=lose_reply)

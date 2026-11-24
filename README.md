@@ -11,6 +11,8 @@ python3 -B check_project.py
 python3 -B -m examples.demo
 ```
 
+在线迁片演示另由运行清单的 `demo` 执行：`python3 -B -m examples.demo_slot_move`。
+
 也可直接由 Python 发现同一套测试：
 
 ```text
@@ -29,10 +31,18 @@ python3 -B -m unittest discover -s tests -t . -p 'test_*.py'
 6. `delivery.publish.publish(station, batch_id)` 使用已经提交的正式定档和实际实收。可显式传入 `selected_capture_id` 或 `receipt` 核对同一依据。待件返回 `None`，错件抛出 `ValueError`，质检不合格抛出 `RejectedMeasurement`。签存失败由 SQLite 抛错，成果、首执和班账均未提交，定档与实收可用于重试。已签发的同件重投返回原快照。
 7. `delivery.claim.claim(station, batch_id)` 按原批号读取成果，已知未签批返回 `None`。`delivery.shift.shift_ledger(station, shift_id)` 按签存顺序列出批号、读值和出处。已开空班返回空表，未知批或班抛出 `KeyError`。两项读取只需要站库。
 
+## 在线迁片
+
+迁片测次的调用约定见 `SLOT_MOVE.md`。`recorder.capture.record(..., movable=True)` 录入迁片测次，`CaptureOrigin.movable` 记住该标记。`recorder.capture.move_capture(device, operation_id, capture_id, target_slot, *, before_commit=None)` 只改设备库，把尚未放行的迁片搬到另一空槽并返回 `MoveOutcome`；忙槽抛出 `recorder.slots.SlotBusy`，提交前故障钩子抛错则原槽不变且不消耗迁片次数。`recorder.capture.query_move(device, operation_id)` 查已提交的搬移结局，同号同参重投复领原结果，异参或二次成功搬移抛出 `ValueError`。
+
+`recorder.capture.read_live_packet(device, capture_id, *, seal)` 从迁片测次当前实际占用的槽取读并封包，已无在线原片返回 `None`。`recorder.packet.encode_live_packet` 与 `decode_live_packet` 定义封包正文的编码，`seal`/`verify` 由可信端口提供。`intake.receipts.receive_live_packet(station, capture_id, packet, *, verify)` 只依赖站库、读包与验包端口完成实收，读址 `read_location` 为 `(slot_id, generation)` 并固定为首次有效实收；同一测次的其他真实读包复领该实收，篡改、错绑与字节冲突抛出 `ValueError`。旧裸件实收、旧设备固定凭据和普通放行都不能接收或放行迁片测次。
+
+`intake.adopt.release_movable(station, device, capture_id, operation_id, *, lose_reply=False)` 凭已提交的合格读包实收放行，只清退该测次的现槽，结果沿用 `ReleaseOutcome`。放行失答抛出 `ReleaseReplyLost`，`intake.resume.resume_release` 按原放行号续办，同参复领原结局。迁片成果的 `read_location` 记录首次有效实收的槽与任次，`piece.original.origin` 仍提供初录出处。
+
 站库入口接收可信设备端口的公告，并按公告核验后续传送的出处、任次和字节摘要。底层槽分配及清槽函数由设备事务调用。低层签存函数接收业务发布入口核定过的快照。设备固定凭据由设备放行端核对，站库凭据由接管端的可信实收校验端口核对。两类凭据都必须在清槽前对应已持久的同一原片。
 
 ## 原片及读值
 
 原片是保留原样的字节。测厚解码采用 UTF-8 JSON 对象，`quality` 为非负整数，`count` 为整数、空值或缺失。格式或字段类型非法时记录解码原因。质检先核对 `quality` 与当班坏位掩码，再区分缺计数和空计数。通过后计算 `(count - zero_offset) × micrometers_per_count`，结果为整数微米，零计数有效。规程和实收、成果中的读值以十进制整数字符串持久化。可信坏片同样保留原片和出处，并可正常办理放行。
 
-设备库保存槽任次、测次公告、固定原片和设备放行结局。站库保存规程、公告、实收、放行绑定、候选、正式定档及成果。回归通过真实 SQLite 事务检查保全失败与签存回滚，通过重开验证旧操作和离线复领取得同一结果。
+设备库保存槽任次、测次公告、固定原片、搬移结局和设备放行结局。站库保存规程、公告、实收（含首次读址）、放行绑定、候选、正式定档及成果。回归通过真实 SQLite 事务检查保全失败与签存回滚，通过重开验证旧操作和离线复领取得同一结果；迁片联测覆盖迟包、错绑、篡改、失答续办、两槽复用后领取 11 μm。

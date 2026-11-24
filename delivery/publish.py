@@ -42,4 +42,5 @@ def publish(
     if readiness.status == 'rejected':
         raise RejectedMeasurement(readiness.reason)
     actual = readiness.receipt
-    return commit_piece(db, batch_id, batch.shift_id, actual.original, actual.measurement.micrometers)
+    return commit_piece(db, batch_id, batch.shift_id, actual.original,
+                        actual.measurement.micrometers, actual.read_location)

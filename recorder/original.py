@@ -10,6 +10,7 @@ class CaptureOrigin:
     slot_id: str
     generation: int
     digest: str
+    movable: bool = False
 
 
 @dataclass(frozen=True, slots=True)

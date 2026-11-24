@@ -5,7 +5,7 @@ from intake.operations import read_operation, record_outcome
 from intake.receipts import find_receipt
 from recorder.original import fingerprint_original
 from recorder.release import ReleaseOutcome, ReleasePermit, query_release, release_capture
-from recorder.slots import get_occupancy
+from recorder.slots import find_occupancy
 
 
 def resume_release(
@@ -27,17 +27,23 @@ def resume_release(
     saved = read_preservation(station, origin.capture_id)
     if saved is None or saved.origin != origin:
         return None
-    active = get_occupancy(device, origin.slot_id)
-    if active is None or (active.capture_id, active.generation) != (origin.capture_id, origin.generation):
+    active = find_occupancy(device, origin.capture_id)
+    if active is None:
         # Another caller may have committed the release since the first query.
         outcome = query_release(device, operation_id)
         return record_outcome(station, outcome) if outcome is not None else None
 
     def verify_station(permit: ReleasePermit) -> bool:
         receipt = find_receipt(station, permit.origin.capture_id)
-        return (receipt is not None and receipt.original.origin == permit.origin
-                and permit.reference == permit.origin.capture_id
-                and fingerprint_original(receipt.original.raw) == permit.origin.digest)
+        if receipt is None or receipt.original.origin != permit.origin:
+            return False
+        if permit.reference != permit.origin.capture_id:
+            return False
+        if fingerprint_original(receipt.original.raw) != permit.origin.digest:
+            return False
+        if permit.origin.movable:
+            return receipt.read_location is not None
+        return True
 
     outcome = release_capture(
         device, operation_id, ReleasePermit(origin, saved.method, saved.reference),

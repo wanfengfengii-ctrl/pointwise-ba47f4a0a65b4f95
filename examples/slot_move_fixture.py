@@ -56,6 +56,9 @@ class HeldFrames:
     def take(self, name: str) -> Envelope:
         return self._frames.pop(name)
 
+    def peek(self, name: str) -> Envelope:
+        return self._frames[name]
+
 
 class CommitRefused(RuntimeError):
     pass

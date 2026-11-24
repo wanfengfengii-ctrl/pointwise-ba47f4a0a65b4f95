@@ -24,6 +24,14 @@ def get_occupancy(db: sqlite3.Connection, slot_id: str) -> SlotOccupancy | None:
     return None if row[2] is None else SlotOccupancy(*row)
 
 
+def find_occupancy(db: sqlite3.Connection, capture_id: str) -> SlotOccupancy | None:
+    row = db.execute(
+        'SELECT slot_id, generation, capture_id, raw FROM device_slots WHERE capture_id = ?',
+        (capture_id,),
+    ).fetchone()
+    return SlotOccupancy(*row) if row is not None else None
+
+
 def occupy_slot(
     db: sqlite3.Connection, capture_id: str, raw: bytes, slot_id: str | None = None,
 ) -> SlotOccupancy:

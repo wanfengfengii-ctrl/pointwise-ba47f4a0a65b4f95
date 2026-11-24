@@ -25,11 +25,11 @@ def open_station(path: str | Path) -> sqlite3.Connection:
 
 def lookup_origin(db: sqlite3.Connection, capture_id: str) -> CaptureOrigin | None:
     row = db.execute(
-        'SELECT capture_id, batch_id, source, slot_id, generation, digest '
+        'SELECT capture_id, batch_id, source, slot_id, generation, digest, movable '
         'FROM announced_origins WHERE capture_id = ?',
         (capture_id,),
     ).fetchone()
-    return CaptureOrigin(*row) if row is not None else None
+    return CaptureOrigin(*row[:6], movable=bool(row[6])) if row is not None else None
 
 
 def announce_origin(db: sqlite3.Connection, origin: CaptureOrigin) -> CaptureOrigin:
@@ -45,10 +45,11 @@ def announce_origin(db: sqlite3.Connection, origin: CaptureOrigin) -> CaptureOri
                       (origin.batch_id,)).fetchone() is None:
             raise KeyError(origin.batch_id)
         db.execute(
-            'INSERT INTO announced_origins (capture_id, batch_id, source, slot_id, generation, digest) '
-            'VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO announced_origins '
+            '(capture_id, batch_id, source, slot_id, generation, digest, movable) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
             (origin.capture_id, origin.batch_id, origin.source, origin.slot_id,
-             origin.generation, origin.digest),
+             origin.generation, origin.digest, int(origin.movable)),
         )
         return origin
 
@@ -74,8 +75,8 @@ def read_preservation(db: sqlite3.Connection, capture_id: str) -> PreservationRe
 def bind_preservation(
     db: sqlite3.Connection, original: CapturedOriginal, method: str, reference: str,
 ) -> PreservationRecord:
-    """Register a committed station copy or an original from the device fixed area."""
-    if method not in ('station', 'device') or reference != original.origin.capture_id:
+    """Register a committed copy: station receipt, device fixed area, or live packet."""
+    if method not in ('station', 'device', 'live') or reference != original.origin.capture_id:
         raise ValueError('invalid preservation reference')
     db.execute('BEGIN IMMEDIATE')
     with db:
@@ -87,10 +88,22 @@ def bind_preservation(
                 raise ValueError('capture already bound to another preservation path')
             return prior
         if method == 'station':
+            if origin.movable:
+                raise ValueError('movable captures need a live read receipt, not a bare copy')
             row = db.execute('SELECT raw FROM capture_receipts WHERE capture_id = ?',
                              (origin.capture_id,)).fetchone()
             if row is None or row[0] != original.raw:
                 raise ValueError('preserved station copy must already be committed')
+        elif method == 'device':
+            if origin.movable:
+                raise ValueError('movable captures cannot be preserved through the device fixed area')
+        elif method == 'live':
+            row = db.execute(
+                'SELECT raw, read_slot FROM capture_receipts WHERE capture_id = ?',
+                (origin.capture_id,),
+            ).fetchone()
+            if row is None or row[0] != original.raw or row[1] is None:
+                raise ValueError('live preservation needs a committed read receipt')
         db.execute(
             'INSERT INTO preservations (capture_id, method, reference) VALUES (?, ?, ?)',
             (origin.capture_id, method, reference),

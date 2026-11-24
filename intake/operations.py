@@ -15,16 +15,24 @@ class ReleaseIntent:
 
 def read_operation(db: sqlite3.Connection, operation_id: str) -> ReleaseIntent | None:
     row = db.execute(
-        'SELECT capture_id, slot_id, generation, confirmed FROM release_intents WHERE operation_id = ?',
+        'SELECT capture_id, slot_id, generation, confirmed, outcome_slot, outcome_generation '
+        'FROM release_intents WHERE operation_id = ?',
         (operation_id,),
     ).fetchone()
     if row is None:
         return None
-    capture_id, slot_id, generation, confirmed = row
+    capture_id, slot_id, generation, confirmed, outcome_slot, outcome_generation = row
     origin = lookup_origin(db, capture_id)
-    if origin is None or (origin.slot_id, origin.generation) != (slot_id, generation):
+    if origin is None:
         raise ValueError('stored operation conflicts with announced occupancy')
-    outcome = ReleaseOutcome(operation_id, capture_id, slot_id, generation) if confirmed else None
+    if not origin.movable and (origin.slot_id, origin.generation) != (slot_id, generation):
+        raise ValueError('stored operation conflicts with announced occupancy')
+    if confirmed:
+        if outcome_slot is None or outcome_generation is None:
+            raise ValueError('stored operation outcome is incomplete')
+        outcome = ReleaseOutcome(operation_id, capture_id, outcome_slot, outcome_generation)
+    else:
+        outcome = None
     return ReleaseIntent(operation_id, origin, outcome)
 
 
@@ -60,11 +68,20 @@ def record_outcome(db: sqlite3.Connection, outcome: ReleaseOutcome) -> ReleaseOu
         if intent is None:
             raise KeyError(outcome.operation_id)
         origin = intent.origin
-        if (origin.capture_id, origin.slot_id, origin.generation) != (
-            outcome.capture_id, outcome.slot_id, outcome.generation,
+        if origin.capture_id != outcome.capture_id:
+            raise ValueError('device outcome conflicts with station intent')
+        if not origin.movable and (origin.slot_id, origin.generation) != (
+            outcome.slot_id, outcome.generation,
         ):
             raise ValueError('device outcome conflicts with station intent')
-        if intent.outcome is None:
-            db.execute('UPDATE release_intents SET confirmed = 1 WHERE operation_id = ?',
-                       (outcome.operation_id,))
-        return outcome
+        if intent.outcome is not None:
+            if intent.outcome != outcome:
+                raise ValueError('station release operation already confirmed differently')
+            return intent.outcome
+        db.execute(
+            'UPDATE release_intents SET confirmed = 1, outcome_slot = ?, outcome_generation = ? '
+            'WHERE operation_id = ?',
+            (outcome.slot_id, outcome.generation, outcome.operation_id),
+        )
+        return ReleaseOutcome(outcome.operation_id, origin.capture_id,
+                              outcome.slot_id, outcome.generation)

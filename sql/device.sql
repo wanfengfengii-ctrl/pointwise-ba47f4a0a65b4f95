@@ -17,7 +17,17 @@ CREATE TABLE IF NOT EXISTS device_origins (
     slot_id TEXT NOT NULL REFERENCES device_slots(slot_id),
     generation INTEGER NOT NULL CHECK (generation > 0),
     digest TEXT NOT NULL,
+    movable INTEGER NOT NULL DEFAULT 0 CHECK (movable IN (0, 1)),
     UNIQUE (slot_id, generation)
+);
+
+CREATE TABLE IF NOT EXISTS device_moves (
+    operation_id TEXT PRIMARY KEY NOT NULL,
+    capture_id TEXT NOT NULL UNIQUE REFERENCES device_origins(capture_id),
+    from_slot TEXT NOT NULL REFERENCES device_slots(slot_id),
+    from_generation INTEGER NOT NULL CHECK (from_generation > 0),
+    to_slot TEXT NOT NULL REFERENCES device_slots(slot_id),
+    to_generation INTEGER NOT NULL CHECK (to_generation > 0)
 );
 
 CREATE TABLE IF NOT EXISTS retained_originals (

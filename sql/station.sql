@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS announced_origins (
     slot_id TEXT NOT NULL,
     generation INTEGER NOT NULL CHECK (generation > 0),
     digest TEXT NOT NULL,
+    movable INTEGER NOT NULL DEFAULT 0 CHECK (movable IN (0, 1)),
     UNIQUE (batch_id, capture_id)
 );
 
@@ -30,12 +31,16 @@ CREATE TABLE IF NOT EXISTS capture_receipts (
     raw BLOB NOT NULL,
     micrometers TEXT,
     reason TEXT,
-    CHECK ((micrometers IS NULL) <> (reason IS NULL))
+    read_slot TEXT,
+    read_generation INTEGER,
+    CHECK ((micrometers IS NULL) <> (reason IS NULL)),
+    CHECK ((read_slot IS NULL) = (read_generation IS NULL)),
+    CHECK (read_generation IS NULL OR read_generation > 0)
 );
 
 CREATE TABLE IF NOT EXISTS preservations (
     capture_id TEXT PRIMARY KEY NOT NULL REFERENCES announced_origins(capture_id),
-    method TEXT NOT NULL CHECK (method IN ('station', 'device')),
+    method TEXT NOT NULL CHECK (method IN ('station', 'device', 'live')),
     reference TEXT NOT NULL
 );
 
@@ -44,7 +49,10 @@ CREATE TABLE IF NOT EXISTS release_intents (
     capture_id TEXT NOT NULL UNIQUE REFERENCES preservations(capture_id),
     slot_id TEXT NOT NULL,
     generation INTEGER NOT NULL CHECK (generation > 0),
-    confirmed INTEGER NOT NULL DEFAULT 0 CHECK (confirmed IN (0, 1))
+    confirmed INTEGER NOT NULL DEFAULT 0 CHECK (confirmed IN (0, 1)),
+    outcome_slot TEXT,
+    outcome_generation INTEGER,
+    CHECK ((outcome_slot IS NULL) = (outcome_generation IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS batch_candidates (
@@ -82,7 +90,11 @@ CREATE TABLE IF NOT EXISTS published_pieces (
     digest TEXT NOT NULL,
     raw BLOB NOT NULL,
     micrometers TEXT NOT NULL,
-    FOREIGN KEY (batch_id, shift_id) REFERENCES review_batches(batch_id, shift_id)
+    movable INTEGER NOT NULL DEFAULT 0 CHECK (movable IN (0, 1)),
+    read_slot TEXT,
+    read_generation INTEGER,
+    FOREIGN KEY (batch_id, shift_id) REFERENCES review_batches(batch_id, shift_id),
+    CHECK ((read_slot IS NULL) = (read_generation IS NULL))
 );
 
 CREATE INDEX IF NOT EXISTS pieces_by_shift ON published_pieces (shift_id, sequence);
